@@ -44,7 +44,8 @@ class PlayerManager:
         self._session_bus.add_signal_receiver(self.onMPRISSignal, path = '/org/mpris/MediaPlayer2',
             sender_keyword='sender', member_keyword='member')
     
-    def onMPRISSignal(self, interface, properties, signature, member = None, sender = None):
+    def onMPRISSignal(self, interface, properties = None, signature = None, member = None, sender = None):
+        if properties == None: return
         if (member == 'PropertiesChanged'):
             if (sender in self.players):
                 player = self.players[sender]
@@ -346,7 +347,12 @@ class Player:
         return self._positionTimerRunning
 
     def refreshPosition(self):
-        time_us = self._getProperty('org.mpris.MediaPlayer2.Player', 'Position')
+        self.has_position = True
+        try:
+            time_us = self._getProperty('org.mpris.MediaPlayer2.Player', 'Position')
+        except Exception as e:
+            self.has_position = False
+            time_us = 0
         self._timeAtLastUpdate = time.time()
         self._positionAtLastUpdate = time_us / 1000000
 
@@ -355,6 +361,11 @@ class Player:
             return self._positionAtLastUpdate + self._rate * (time.time() - self._timeAtLastUpdate)
         else:
             return self._positionAtLastUpdate
+
+    def _formatPosition(self):
+        if not self.has_position:
+            return "--:--"
+        return format_time(self._getPosition())
 
     def _statusReplace(self, match, metadata):
         tag = match.group('tag')
@@ -398,7 +409,7 @@ class Player:
         if self.status in [ 'playing', 'paused' ]:
             metadata = { **self.metadata, 'icon': self.icon, 'icon-reversed': self.icon_reversed }
             if NEEDS_POSITION:
-                metadata['position'] = time.strftime("%M:%S", time.gmtime(self._getPosition()))
+                metadata['position'] = self._formatPosition()
             # replace metadata tags in text
             text = re.sub(FORMAT_REGEX, lambda match: self._statusReplace(match, metadata), FORMAT_STRING)
             # restore polybar tag formatting and replace any remaining metadata tags after that
@@ -447,9 +458,17 @@ def _getProperty(properties, property, default = None):
     else:
         return value
 
+def format_time(seconds):
+    r = ""
+    if seconds > 3600:
+        r = str(seconds // 3600) + ":"
+        seconds %= 3600
+    return r + "{:02}:{:02}".format(seconds // 60, seconds % 60)
+
 def _getDuration(t: int):
+        if t == 0: return "--:--"
         seconds = t / 1000000
-        return time.strftime("%M:%S", time.gmtime(seconds))
+        return format_time(seconds)
 
 
 class CleanSafeDict(dict):
